@@ -1,5 +1,7 @@
 "use client";
 
+import JSZip from "jszip";
+import zeabur from "@/libs/zeabur";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import { useScrollTo } from "@/hooks/use-scroll-to";
@@ -181,6 +183,178 @@ export default function Home() {
     }
   }, [loading, generatedCode]);
 
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [domain, setDomain] = useState("");
+
+  async function composeFilesToZip() {
+    const zip = new JSZip();
+
+    const tsconfigJson = {
+      files: [],
+      references: [
+        {
+          path: "./tsconfig.app.json",
+        },
+        {
+          path: "./tsconfig.node.json",
+        },
+      ],
+    };
+
+    const tsconfigAppJson = {
+      compilerOptions: {
+        composite: true,
+        tsBuildInfoFile: "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+        target: "ES2020",
+        useDefineForClassFields: true,
+        lib: ["ES2020", "DOM", "DOM.Iterable"],
+        module: "ESNext",
+        skipLibCheck: true,
+
+        /* Bundler mode */
+        moduleResolution: "bundler",
+        allowImportingTsExtensions: true,
+        resolveJsonModule: true,
+        isolatedModules: true,
+        moduleDetection: "force",
+        noEmit: true,
+        jsx: "react-jsx",
+
+        /* Linting */
+        strict: true,
+        noUnusedLocals: true,
+        noUnusedParameters: true,
+        noFallthroughCasesInSwitch: true,
+      },
+      include: ["src"],
+    };
+
+    const tsconfigNodeJson = {
+      compilerOptions: {
+        composite: true,
+        tsBuildInfoFile: "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+        skipLibCheck: true,
+        module: "ESNext",
+        moduleResolution: "bundler",
+        allowSyntheticDefaultImports: true,
+        strict: true,
+        noEmit: true,
+      },
+      include: ["vite.config.ts"],
+    };
+
+    const packageJson = {
+      name: "vite-template",
+      private: true,
+      version: "0.0.0",
+      type: "module",
+      scripts: {
+        dev: "vite",
+        build: "tsc -b && vite build",
+        lint: "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+        preview: "vite preview",
+      },
+      dependencies: {
+        react: "^18.3.1",
+        "react-dom": "^18.3.1",
+      },
+      devDependencies: {
+        "@types/react": "^18.3.3",
+        "@types/react-dom": "^18.3.0",
+        "@typescript-eslint/eslint-plugin": "^7.15.0",
+        "@typescript-eslint/parser": "^7.15.0",
+        "@vitejs/plugin-react": "^4.3.1",
+        eslint: "^8.57.0",
+        "eslint-plugin-react-hooks": "^4.6.2",
+        "eslint-plugin-react-refresh": "^0.4.7",
+        typescript: "^5.2.2",
+        vite: "^5.3.4",
+      },
+    };
+
+    const viteConfigTs = `import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [react()],
+})
+`;
+
+    const indexHTML = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vite + React + TS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+`;
+
+    const mainTsx = `import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App.tsx'
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+)
+`;
+
+    zip.file("/tsconfig.json", JSON.stringify(tsconfigJson, null, 2));
+    zip.file("/tsconfig.app.json", JSON.stringify(tsconfigAppJson, null, 2));
+    zip.file("/tsconfig.node.json", JSON.stringify(tsconfigNodeJson, null, 2));
+    zip.file("/package.json", JSON.stringify(packageJson, null, 2));
+    zip.file("/index.html", indexHTML);
+    zip.file("/vite.config.ts", viteConfigTs);
+    zip.file("/src/main.tsx", mainTsx);
+    zip.file("/src/App.tsx", generatedCode);
+
+    return zip.generateAsync({ type: "blob" });
+  }
+
+  async function deployToZeabur() {
+    const zip = await composeFilesToZip();
+
+    // Debug Only
+    // // Create a Blob from the zip file
+    // const zipBlob = new Blob([zip], { type: "application/zip" });
+
+    // // Create a temporary URL for the Blob
+    // const zipUrl = URL.createObjectURL(zipBlob);
+
+    // // Create a temporary anchor element
+    // const downloadLink = document.createElement("a");
+    // downloadLink.href = zipUrl;
+    // downloadLink.download = "project.zip";
+
+    // // Append to the body, click, and remove
+    // document.body.appendChild(downloadLink);
+    // downloadLink.click();
+    // document.body.removeChild(downloadLink);
+
+    // // Clean up the temporary URL
+    // URL.revokeObjectURL(zipUrl);
+
+    setIsDeploying(true);
+    try {
+      const res = await zeabur.deploy(zip, "hkg1", "llamacoder", true);
+      setDomain(res);
+      window.open("https://" + res, "_blank");
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsDeploying(false);
+    }
+  }
+
   return (
     <div className="mx-auto flex min-h-screen max-w-7xl flex-col items-center justify-center py-2">
       <Header />
@@ -334,10 +508,6 @@ export default function Home() {
                       <button
                         onClick={() => {
                           location.reload();
-
-                          // TODO: Cancel stream and reset this state
-                          // setMessages([]);
-                          // setStatus("initial");
                         }}
                         className="inline-flex size-[68px] items-center justify-center rounded-3xl bg-blue-500"
                       >
@@ -392,6 +562,23 @@ export default function Home() {
                     },
                   }}
                 />
+
+                <button
+                  className={`absolute bottom-4 right-4 z-[9999] font-semibold ${
+                    isDeploying ? "animate-pulse cursor-not-allowed" : ""
+                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    deployToZeabur();
+                  }}
+                >
+                  <img
+                    src="https://zeabur.com/button.svg"
+                    alt="Deploy to Zeabur"
+                    className="h-full w-full"
+                  />
+                </button>
               </div>
 
               <AnimatePresence>
